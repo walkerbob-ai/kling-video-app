@@ -160,6 +160,15 @@ function startTimer() {
 
 function stopTimer() { clearInterval(timerInterval); }
 
+async function callProxy(url, method, headers, body) {
+  const res = await fetch('/api/proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, method, headers, body })
+  });
+  return res;
+}
+
 async function generate() {
   hideError();
   const apiKey = document.getElementById('apiKey').value.trim();
@@ -181,24 +190,12 @@ async function generate() {
   startTimer();
 
   try {
-    // استخدام corsproxy.io لتجاوز CORS
-    const apiUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://api.klingai.com/v1/videos/image2video');
-    
-    const res = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey
-      },
-      body: JSON.stringify({
-        model: model,
-        image: imageBase64,
-        prompt: prompt,
-        duration: duration,
-        aspect_ratio: ratio,
-        cfg_scale: 0.5
-      })
-    });
+    const res = await callProxy(
+      'https://api.klingai.com/v1/videos/image2video',
+      'POST',
+      { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      { model, image: imageBase64, prompt, duration, aspect_ratio: ratio, cfg_scale: 0.5 }
+    );
 
     const data = await res.json();
     if (!res.ok || data.code !== 0) throw new Error(data.message || 'فشل الطلب: ' + res.status);
@@ -222,14 +219,15 @@ async function pollResult(taskId, apiKey) {
   const poll = async () => {
     attempts++;
     try {
-      const pollUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://api.klingai.com/v1/videos/image2video/' + taskId);
-      const res = await fetch(pollUrl, {
-        headers: { 'Authorization': 'Bearer ' + apiKey }
-      });
+      const res = await callProxy(
+        'https://api.klingai.com/v1/videos/image2video/' + taskId,
+        'GET',
+        { 'Authorization': 'Bearer ' + apiKey },
+        null
+      );
       const data = await res.json();
       const status = data.data?.task_status;
-      const progress = Math.min(30 + attempts * 3, 90);
-      document.getElementById('progressFill').style.width = progress + '%';
+      document.getElementById('progressFill').style.width = Math.min(30 + attempts * 3, 90) + '%';
 
       if (status === 'succeed') {
         stopTimer();
@@ -238,7 +236,7 @@ async function pollResult(taskId, apiKey) {
         if (!videoUrl) throw new Error('لم يتم إرجاع رابط الفيديو');
         setTimeout(() => showResult(videoUrl), 500);
       } else if (status === 'failed') {
-        throw new Error('فشل التوليد: ' + (data.data?.task_status_msg || 'خطأ غير معروف'));
+        throw new Error('فشل التوليد: ' + (data.data?.task_status_msg || 'خطأ'));
       } else if (attempts < 120) {
         document.getElementById('statusText').textContent = 'جاري التوليد... (' + attempts + ')';
         setTimeout(poll, 5000);
